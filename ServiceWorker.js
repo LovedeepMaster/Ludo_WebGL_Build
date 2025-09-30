@@ -1,9 +1,9 @@
-const cacheName = "LovedeepSinghGame-Ludo-0.1.0";
+const cacheName = "LovedeepSinghGame-Ludo-0.1.1";
 const contentToCache = [
-    "Build/0.1.0.loader.js",
-    "Build/0.1.0.framework.js.unityweb",
-    "Build/0.1.0.data.unityweb",
-    "Build/0.1.0.wasm.unityweb",
+    "Build/New folder.loader.js",
+    "Build/New folder.framework.js.unityweb",
+    "Build/New folder.data.unityweb",
+    "Build/New folder.wasm.unityweb",
     "TemplateData/style.css"
 
 ];
