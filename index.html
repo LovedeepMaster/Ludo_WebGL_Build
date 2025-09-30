@@ -7,18 +7,253 @@
     <link rel="shortcut icon" href="TemplateData/favicon.ico">
     <link rel="stylesheet" href="TemplateData/style.css">
     <link rel="manifest" href="manifest.webmanifest">
+
+    <!-- --- Custom styles for overlay loader --- -->
+    <style>
+      /* Ensure full-height page with no default margins that could shift layout */
+      html, body {
+        height: 100%;
+        margin: 0;
+        background: #000; /* default black background behind container */
+      }
+
+      /* Ensure the unity-container is positioned so absolute overlay can sit on top */
+      #unity-container {
+        position: relative;
+        width: 100%;
+        height: 100vh; /* full viewport height so vertical centering works */
+        box-sizing: border-box;
+      }
+
+      /* When PC portrait mode is applied we use flex centering */
+      #unity-container.pc-portrait {
+        background: black;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+      }
+
+      /* Ensure canvas is treated as block-level so centering works reliably */
+      #unity-canvas {
+        display: block;
+        margin: 0 auto; /* ensure horizontal centering even if not flexed */
+        max-width: 100%;
+        max-height: 100%;
+        box-sizing: border-box;
+      }
+
+      /* Custom overlay that will cover Unity's default loader */
+      #custom-loading-overlay {
+        position: absolute;
+        inset: 0; /* top:0; right:0; bottom:0; left:0; */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none; /* let clicks pass through if needed (custom loader itself is non-interactive) */
+        z-index: 9999; /* higher than Unity's default loader */
+      }
+
+      /* Backdrop behind the custom loader (optional translucent effect) */
+      #custom-loading-backdrop {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.45); /* translucent black */
+        backdrop-filter: blur(1px);
+      }
+
+      /* The loader card that contains the progress bar */
+      #custom-loading-card {
+        position: relative;
+        width: min(800px, 85%);
+        max-width: 900px;
+        padding: 18px;
+        box-sizing: border-box;
+        border-radius: 10px;
+        background: rgba(255,255,255,0.06); /* subtle card */
+        box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        z-index: 10000; /* above backdrop */
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+      }
+
+      #custom-loading-title {
+        font-family: sans-serif;
+        font-size: 14px;
+        color: #fff;
+        text-align: center;
+        user-select: none;
+      }
+
+      /* Progress bar empty area */
+      #custom-progress-empty {
+        width: 100%;
+        height: 18px;
+        background: rgba(255,255,255,0.12);
+        border-radius: 9px;
+        overflow: hidden;
+      }
+
+      /* Progress bar full - width will be set in JS */
+      #custom-progress-full {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, rgba(58,123,213,1) 0%, rgba(0,210,255,1) 100%);
+        box-shadow: 0 2px 8px rgba(0,0,0,0.4) inset;
+        border-radius: 9px 0 0 9px;
+        transition: width 150ms linear;
+      }
+
+      /* Small percent text */
+      #custom-progress-percent {
+        font-family: monospace;
+        font-size: 12px;
+        color: #fff;
+        text-align: center;
+        user-select: none;
+      }
+
+      /* Make sure Unity's default loading bar is below our overlay and taken out of layout flow */
+      #unity-loading-bar {
+        position: absolute; /* <-- take out of document flow so it doesn't affect centering */
+        left: 0;
+        right: 0;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 1;
+        pointer-events: none; /* optionally disable pointer events on unity's loader */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-sizing: border-box;
+      }
+
+      /* Keep the default loader's inner progress container with limited width */
+      #unity-progress-bar-empty {
+        width: 80%;
+        max-width: 1200px;
+      }
+
+      /* === NEW: hide Unity's default loading bar completely so only our custom bar is visible === */
+      /* Use !important to override any inline style changes Unity script might set. */
+      #unity-loading-bar {
+        display: none !important;
+        visibility: hidden !important;
+        /* keep it accessible state-wise: */
+        aria-hidden: true;
+      }
+      /* === end hide rule === */
+
+      /* Hide custom overlay by default; JS will show it */
+      #custom-loading-overlay[hidden] {
+        display: none;
+      }
+
+      /* === Orientation warning styles (mobile-only UI) === */
+      #rotate-warning {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10001; /* above custom loader so it is clearly visible */
+        pointer-events: none; /* changed dynamically to intercept input when active */
+      }
+
+      #rotate-warning .card {
+        pointer-events: none;
+        background: rgba(0,0,0,0.72);
+        color: #fff;
+        padding: 18px 22px;
+        border-radius: 12px;
+        text-align: center;
+        max-width: 90%;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+      }
+
+      #rotate-warning .title {
+        font-family: sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        margin-bottom: 8px;
+      }
+
+      #rotate-warning .desc {
+        font-family: sans-serif;
+        font-size: 13px;
+        opacity: 0.95;
+      }
+
+      /* Hide rotate warning by default */
+      #rotate-warning[hidden] {
+        display: none;
+      }
+      /* === end orientation styles === */
+
+      /* Blocker that intercepts all input while rotate-warning is visible.
+         Initially hidden; when active it will sit above everything and catch pointer/key events. */
+      #rotate-input-blocker {
+        position: fixed;
+        inset: 0;
+        z-index: 10002; /* above rotate-warning */
+        background: transparent; /* invisible but intercepts input */
+        display: none; /* toggled via JS */
+        touch-action: none; /* prevent gestures */
+      }
+
+      /* Responsive tweak for small screens */
+      @media (max-width: 420px) {
+        #custom-loading-card { padding: 12px; }
+        #custom-loading-title { font-size: 13px; }
+        #custom-progress-empty { height: 14px; }
+        #unity-progress-bar-empty { width: 90%; }
+      }
+
+    </style>
+    <!-- --- End custom styles --- -->
   </head>
   <body>
     <div id="unity-container">
-      <canvas id="unity-canvas" width=1080 height=1920 tabindex="-1"></canvas>
-      <div id="unity-loading-bar">
+      <canvas id="unity-canvas" width=960 height=600 tabindex="-1"></canvas>
+
+      <!-- Unity's default loading bar (kept in DOM for fallback but hidden via CSS & aria-hidden) -->
+      <div id="unity-loading-bar" aria-hidden="true">
         <div id="unity-logo"></div>
         <div id="unity-progress-bar-empty">
           <div id="unity-progress-bar-full"></div>
         </div>
       </div>
+
       <div id="unity-warning"> </div>
+
+      <!-- Custom overlay that will overlap Unity's loader and mirror progress -->
+      <div id="custom-loading-overlay" hidden>
+        <div id="custom-loading-backdrop"></div>
+
+        <div id="custom-loading-card" aria-hidden="true">
+          <div id="custom-loading-title">Loading — Ludo</div>
+          <div id="custom-progress-empty" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+            <div id="custom-progress-full"></div>
+          </div>
+          <div id="custom-progress-percent">0%</div>
+        </div>
+      </div>
     </div>
+
+    <!-- Orientation warning UI (mobile only) -->
+    <div id="rotate-warning" hidden aria-hidden="true">
+      <div class="card" role="status" aria-live="polite">
+        <div class="title">Rotate your device</div>
+        <div class="desc">This game is best played in portrait. Please rotate your phone back to portrait mode.</div>
+      </div>
+    </div>
+
+    <!-- Invisible input blocker used while rotate-warning is visible -->
+    <div id="rotate-input-blocker" aria-hidden="true" tabindex="-1"></div>
+
     <script>
       window.addEventListener("load", function () {
         if ("serviceWorker" in navigator) {
@@ -31,6 +266,20 @@
       var loadingBar = document.querySelector("#unity-loading-bar");
       var progressBarFull = document.querySelector("#unity-progress-bar-full");
       var warningBanner = document.querySelector("#unity-warning");
+
+      // Custom overlay elements
+      var customOverlay = document.querySelector("#custom-loading-overlay");
+      var customProgressFull = document.querySelector("#custom-progress-full");
+      var customProgressPercent = document.querySelector("#custom-progress-percent");
+      var customLoadingTitle = document.querySelector("#custom-loading-title");
+
+      // Orientation warning element
+      var rotateWarning = document.querySelector("#rotate-warning");
+      var rotateBlocker = document.querySelector("#rotate-input-blocker");
+
+      // Utility variables used by blocker
+      var blockerActive = false;
+      var _blockerHandlers = [];
 
       // Shows a temporary message banner/ribbon for a few seconds, or
       // a permanent error message on top of the canvas if type=='error'.
@@ -70,32 +319,227 @@
         showBanner: unityShowBanner,
       };
 
-      // By default Unity keeps WebGL canvas render target size matched with
-      // the DOM size of the canvas element (scaled by window.devicePixelRatio)
-      // Set this to false if you want to decouple this synchronization from
-      // happening inside the engine, and you would instead like to size up
-      // the canvas DOM size and WebGL render target sizes yourself.
-      // config.matchWebGLToCanvasSize = false;
+      // -------------------------
+      // Device detection & PC portrait sizing
+      // -------------------------
+      // Determine whether the user is on mobile
+      var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
-        // Mobile device style: fill the whole browser client area with the game canvas:
+      // Desired portrait logical resolution for PC
+      var PC_TARGET_WIDTH = 1080;
+      var PC_TARGET_HEIGHT = 1920;
+
+      // Apply PC-only canvas sizing and black surrounding area
+      function applyPcPortraitSizing() {
+        // Add a class so CSS can apply styling (background black, center)
+        container.classList.add("pc-portrait");
+
+        // Tell Unity not to auto-match the canvas DOM size to WebGL render target so we keep control
+        // (this prevents Unity from stomping on our DOM sizing)
+        config.matchWebGLToCanvasSize = false;
+
+        // Set the canvas logical resolution (WebGL render target size)
+        canvas.width = PC_TARGET_WIDTH;
+        canvas.height = PC_TARGET_HEIGHT;
+
+        // Compute a scale so the canvas fits within the current viewport (preserve aspect ratio)
+        // scale <= 1 so we never upscale beyond 1:1
+        var scale = Math.min(window.innerWidth / PC_TARGET_WIDTH, window.innerHeight / PC_TARGET_HEIGHT, 1);
+
+        // Apply CSS size to scale the canvas visually while keeping logical resolution fixed
+        canvas.style.width = Math.round(PC_TARGET_WIDTH * scale) + "px";
+        canvas.style.height = Math.round(PC_TARGET_HEIGHT * scale) + "px";
+
+        // Make sure canvas is centered even before Unity finishes loading
+        // Ensure container is using flex centering (defensive)
+        container.style.display = "flex";
+        container.style.alignItems = "center";
+        container.style.justifyContent = "center";
+
+        // Also set canvas margin auto to ensure horizontal centering in any layout mode
+        canvas.style.marginLeft = "auto";
+        canvas.style.marginRight = "auto";
+      }
+
+      // Helper to activate the input blocker (prevent all interactions)
+      function activateRotateBlocker() {
+        if (blockerActive) return;
+        blockerActive = true;
+
+        // Show the invisible blocker div above everything and allow it to catch events
+        rotateBlocker.style.display = "block";
+        rotateBlocker.setAttribute("aria-hidden", "false");
+
+        // Ensure rotateWarning is visible (the UI card)
+        rotateWarning.removeAttribute("hidden");
+        rotateWarning.setAttribute("aria-hidden", "false");
+
+        // Make blocker capture pointer events
+        rotateBlocker.style.pointerEvents = "auto";
+        rotateWarning.style.pointerEvents = "none"; // keep card non-interactive itself
+
+        // Also set canvas non-interactive as defensive measure
+        canvas.style.pointerEvents = "none";
+
+        // Install capturing handlers to prevent keyboard/gamepad/scroll interactions
+        var preventer = function(e) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          return false;
+        };
+
+        // Events to block comprehensively
+        var events = ['pointerdown','pointerup','pointermove','touchstart','touchend','touchmove','keydown','wheel','gamepadconnected','gamepadbuttondown'];
+
+        events.forEach(function(evt){
+          window.addEventListener(evt, preventer, true);
+          _blockerHandlers.push({evt:evt, fn:preventer});
+        });
+
+        // Put focus on the blocker so it captures keyboard input on some browsers
+        rotateBlocker.tabIndex = -1;
+        rotateBlocker.focus && rotateBlocker.focus();
+      }
+
+      // Helper to deactivate the input blocker (restore interactions)
+      function deactivateRotateBlocker() {
+        if (!blockerActive) return;
+        blockerActive = false;
+
+        // Hide blocker and restore attributes
+        rotateBlocker.style.display = "none";
+        rotateBlocker.setAttribute("aria-hidden", "true");
+
+        // Hide rotate warning
+        rotateWarning.setAttribute("hidden", "");
+        rotateWarning.setAttribute("aria-hidden", "true");
+
+        // Restore canvas interactive state
+        canvas.style.pointerEvents = "";
+
+        // Remove installed handlers
+        _blockerHandlers.forEach(function(h){
+          window.removeEventListener(h.evt, h.fn, true);
+        });
+        _blockerHandlers = [];
+      }
+
+      // If device is mobile, append viewport meta (keeps original default behaviour)
+      if (isMobile) {
         var meta = document.createElement('meta');
         meta.name = 'viewport';
         meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
         document.getElementsByTagName('head')[0].appendChild(meta);
+        // Keep config.matchWebGLToCanvasSize default (Unity will manage canvas size)
+
+        // Setup orientation detection for mobile devices
+        function isPortraitNow() {
+          // Prefer screen.orientation if available, fallback to matchMedia
+          if (screen && screen.orientation && screen.orientation.type) {
+            return screen.orientation.type.indexOf('portrait') !== -1;
+          }
+          return window.matchMedia && window.matchMedia("(orientation: portrait)").matches;
+        }
+
+        function updateRotateWarning() {
+          if (!isPortraitNow()) {
+            // show warning (remove hidden) and block input
+            activateRotateBlocker();
+          } else {
+            // hide warning and unblock input
+            deactivateRotateBlocker();
+          }
+        }
+
+        // initial check (cover case: user opens directly in landscape)
+        updateRotateWarning();
+
+        // Listen for orientation changes and resize events (covers broad device support)
+        window.addEventListener('orientationchange', function () {
+          // slight delay to let the OS settle the new orientation/metrics
+          setTimeout(updateRotateWarning, 120);
+        }, false);
+
+        window.addEventListener('resize', function () {
+          // resize will fire when orientation changes on many browsers
+          setTimeout(updateRotateWarning, 80);
+        }, false);
+      } else {
+        // PC browser detected -> apply portrait sizing and keep it responsive on resize
+        applyPcPortraitSizing();
+        window.addEventListener("resize", function () {
+          // Re-apply sizing on resize to adjust scale
+          applyPcPortraitSizing();
+        });
       }
 
+      // -------------------------
+      // End device detection section
+      // -------------------------
+
+      // Make sure the Unity loader (default) is visible while we prepare our custom overlay
+      // (we hide it via CSS so it will not be seen)
       loadingBar.style.display = "block";
+
+      // _Important_: ensure unity-loading-bar is below our overlay visually
+      loadingBar.style.zIndex = "1";
+
+      // Show our custom overlay
+      customOverlay.removeAttribute("hidden");
 
       var script = document.createElement("script");
       script.src = loaderUrl;
       script.onload = () => {
+        // createUnityInstance provides a progress callback with a number in [0,1].
+        // We'll update both Unity's default progress bar and our custom overlay to the same value.
         createUnityInstance(canvas, config, (progress) => {
-          progressBarFull.style.width = 100 * progress + "%";
+          // Unity's default progress bar (already in original file)
+          if (progressBarFull) {
+            progressBarFull.style.width = 100 * progress + "%";
+          }
+
+          // Update custom overlay progress bar
+          if (customProgressFull) {
+            // Set width matching unity progress
+            var pct = Math.round(100 * progress);
+            customProgressFull.style.width = pct + "%";
+
+            // Update ARIA and percent text
+            customProgressFull.setAttribute("aria-valuenow", pct);
+            customProgressPercent.textContent = pct + "%";
+
+            // If progress reaches 100% (or very close), hide the overlay after a tiny delay
+            if (progress >= 0.999) {
+              // small delay gives users a sense of completion and avoids flash
+              setTimeout(function(){
+                // hide overlay and unity loading bar
+                customOverlay.setAttribute("hidden", "");
+                loadingBar.style.display = "none";
+              }, 180);
+            }
+          }
         }).then((unityInstance) => {
+          // Unity instance loaded successfully — ensure everything hidden and centered
+          customOverlay.setAttribute("hidden", "");
           loadingBar.style.display = "none";
+
+          // Unity may take over canvas sizing; re-assert centering just in case
+          if (!isMobile) {
+            // on PC re-apply our centering rules (Unity may adjust style attributes)
+            applyPcPortraitSizing();
+          } else {
+            // ensure mobile canvas centered horizontally
+            canvas.style.marginLeft = "auto";
+            canvas.style.marginRight = "auto";
+
+            // Also re-evaluate orientation after Unity starts, in case orientation changed during load
+            if (typeof updateRotateWarning === "function") updateRotateWarning();
+          }
         }).catch((message) => {
-          alert(message);
+          // If there's an error, keep overlay visible and show the message as an error banner
+          customOverlay.removeAttribute("hidden");
+          unityShowBanner("Build error: " + message, "error");
+          console.error(message);
         });
       };
       document.body.appendChild(script);
